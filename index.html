@@ -26,8 +26,17 @@
   #transcribeBtn { background: #333; color: white; }
   #transcribeBtn:disabled { background: #ccc; cursor: default; }
   #status { font-size: .8rem; color: #888; margin-bottom: 12px; min-height: 1.2em; }
+  canvas { width: 100%; height: 80px; border-radius: 10px; display: none; margin-bottom: 12px; background: #0a0a0a; }
+  #playRow { display: none; margin-bottom: 12px; }
+  #playBtn {
+    width: 100%; padding: 10px; border: none; border-radius: 10px;
+    font-size: .95rem; font-weight: 600; cursor: pointer;
+    background: #2196f3; color: white; transition: .2s;
+  }
+  #playBtn:active { transform: scale(.97); }
+  #playBtn.playing { background: #e91e63; }
   textarea {
-    width: 100%; height: 280px; padding: 12px; border: 1px solid #ddd;
+    width: 100%; height: 250px; padding: 12px; border: 1px solid #ddd;
     border-radius: 10px; font-size: .95rem; resize: vertical;
     outline: none; background: #fafafa; font-family: inherit;
   }
@@ -50,7 +59,9 @@
     <button id="transcribeBtn" disabled>Transcribe</button>
   </div>
   <div id="status">Press Record and start speaking</div>
-  <textarea id="result" placeholder="Transcription will appear here as you speak..." readonly></textarea>
+  <canvas id="visualizer"></canvas>
+  <div id="playRow"><button id="playBtn">Play recording</button></div>
+  <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
   <button id="saveBtn">Copy to clipboard</button>
   <div id="error" class="error"></div>
 </div>
@@ -62,17 +73,30 @@ const resultArea = document.getElementById('result');
 const statusEl = document.getElementById('status');
 const errorEl = document.getElementById('error');
 const saveBtn = document.getElementById('saveBtn');
+const canvas = document.getElementById('visualizer');
+const ctx = canvas.getContext('2d');
+const playBtn = document.getElementById('playBtn');
+const playRow = document.getElementById('playRow');
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+let stream = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let audioBlob = null;
+let audioUrl = null;
+let audioPlayer = null;
+let recognition = null;
+let transcript = '';
+let analyser = null;
+let animFrame = null;
+
 if (!SR) {
-  statusEl.textContent = 'Unsupported browser. Use Chrome on Android, desktop, or Edge.';
+  statusEl.textContent = 'Unsupported browser. Use Chrome, Edge, or Samsung Internet.';
   recordBtn.disabled = true;
   transcribeBtn.disabled = true;
 }
-
-let isRecording = false;
-let recognition = null;
-let transcript = '';
 
 recordBtn.addEventListener('click', () => {
   if (!isRecording) startRecording();
@@ -93,28 +117,51 @@ saveBtn.addEventListener('click', () => {
   });
 });
 
-function startRecording() {
-  transcript = '';
-  resultArea.value = '';
-  errorEl.textContent = '';
-  saveBtn.style.display = 'none';
-  transcribeBtn.disabled = true;
+playBtn.addEventListener('click', () => {
+  if (!audioUrl) return;
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Play recording'; return; }
+  audioPlayer = new Audio(audioUrl);
+  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Play recording'; };
+  audioPlayer.play();
+  playBtn.textContent = 'Stop';
+});
 
-  // Request mic permission first
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
-    // Permission granted, ready to start speech recognition
-    // (we stop this stream immediately - SR will request its own)
+function startRecording() {
+  audioChunks = []; audioBlob = null; transcript = '';
+  resultArea.value = ''; errorEl.textContent = '';
+  saveBtn.style.display = 'none'; transcribeBtn.disabled = true; playRow.style.display = 'none';
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
+  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
+
+  // Get mic stream once and share it
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
+    stream = s;
+    isRecording = true;
+    recordBtn.textContent = 'Stop';
+    recordBtn.classList.add('recording');
+    statusEl.textContent = 'Recording...';
+
+    // 1. Start speech recognition (uses its own mic access via the granted permission)
+    startSR();
+
+    // 2. Start MediaRecorder for playback (uses the stream we already have)
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus' : 'audio/webm';
+    mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.start();
+
+    // 3. Start visualizer (uses the stream we already have)
+    startVisualizer(stream);
+
   }).catch(err => {
     if (err.name === 'NotAllowedError') {
-      errorEl.textContent = 'Please allow microphone access in your browser settings.';
+      errorEl.textContent = 'Please allow microphone access in your browser.';
     } else {
       errorEl.textContent = 'Mic error: ' + err.message;
     }
     statusEl.textContent = 'Mic access denied';
-    return;
   });
-
-  startSR();
 }
 
 function startSR() {
@@ -131,35 +178,17 @@ function startSR() {
       else interim += r[0].transcript;
     }
     resultArea.value = transcript + interim;
-    statusEl.textContent = 'Recording... speak now';
   };
 
-  recognition.onerror = (e) => {
-    errorEl.textContent = 'Speech error: ' + e.error + '. Try speaking closer to the mic.';
-    if (e.error === 'not-allowed') {
-      statusEl.textContent = 'Mic blocked';
-      isRecording = false;
-      recordBtn.textContent = 'Record';
-      recordBtn.classList.remove('recording');
-    }
-  };
+  recognition.onerror = () => {};
 
   recognition.onend = () => {
     if (isRecording) {
-      // Restart if we didn't explicitly stop
       try { recognition.start(); } catch(e) {}
     }
   };
 
-  try {
-    recognition.start();
-    isRecording = true;
-    recordBtn.textContent = 'Stop';
-    recordBtn.classList.add('recording');
-    statusEl.textContent = 'Starting microphone...';
-  } catch (e) {
-    errorEl.textContent = 'Failed to start: ' + e.message;
-  }
+  try { recognition.start(); } catch(e) {}
 }
 
 function stopRecording() {
@@ -167,12 +196,33 @@ function stopRecording() {
   recordBtn.textContent = 'Record';
   recordBtn.classList.remove('recording');
 
+  // Stop speech recognition
   if (recognition) {
     recognition.onend = null;
     try { recognition.stop(); } catch(e) {}
     recognition = null;
   }
 
+  // Stop media recorder and create playback
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = () => {
+      audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+      audioUrl = URL.createObjectURL(audioBlob);
+      playRow.style.display = 'block';
+    };
+    mediaRecorder.stop();
+  }
+
+  // Stop the mic stream
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  // Stop visualizer
+  stopVisualizer();
+
+  // Update UI
   if (transcript.trim()) {
     resultArea.value = transcript;
     transcribeBtn.disabled = false;
@@ -180,6 +230,45 @@ function stopRecording() {
   } else {
     statusEl.textContent = 'No speech detected. Try again.';
   }
+}
+
+function startVisualizer(s) {
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioCtx.createMediaStreamSource(s);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  canvas.style.display = 'block';
+  canvas.width = (canvas.offsetWidth || 450) * 2;
+  canvas.height = (canvas.offsetHeight || 80) * 2;
+  const bufLen = analyser.frequencyBinCount;
+  const data = new Uint8Array(bufLen);
+
+  function draw() {
+    if (!analyser) return;
+    animFrame = requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(data);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const n = 32;
+    const step = Math.floor(bufLen / n);
+    const bw = (canvas.width / n) * 0.7;
+    const gap = (canvas.width / n) * 0.3;
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = 0; j < step; j++) s += data[i * step + j];
+      const h = (s / step / 255) * canvas.height * 0.9;
+      ctx.fillStyle = `hsl(${200 - (h / canvas.height) * 200}, 80%, 50%)`;
+      ctx.fillRect(i * (bw + gap), canvas.height - h, bw, h);
+    }
+  }
+  draw();
+}
+
+function stopVisualizer() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animFrame = null;
+  analyser = null;
+  canvas.style.display = 'none';
 }
 </script>
 </body>

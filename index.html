@@ -48,35 +48,12 @@
     font-weight: 600; cursor: pointer; width: 100%; margin-top: 8px; transition: .2s;
   }
   #saveBtn:active { transform: scale(.97); }
-  #hfSection {
-    margin-top: 16px; padding: 12px; border: 1px solid #eee; border-radius: 10px; display: none;
-  }
-  #hfSection summary { cursor: pointer; font-size: .85rem; color: #666; font-weight: 600; }
-  #hfSection label { font-size: .8rem; color: #666; display: block; margin: 8px 0 4px; }
-  #tokenInput {
-    width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px;
-    font-size: .85rem; outline: none; font-family: inherit;
-  }
-  #tokenInput:focus { border-color: #333; }
-  #saveTokenBtn {
-    margin-top: 6px; padding: 6px 14px; border: none; border-radius: 6px;
-    background: #333; color: white; font-size: .8rem; font-weight: 600; cursor: pointer;
-  }
-  #saveTokenBtn:active { transform: scale(.97); }
-  #tokenStatus { font-size: .75rem; color: #888; margin-top: 4px; }
-  #modeTag {
-    display: inline-block; font-size: .7rem; padding: 2px 8px; border-radius: 10px;
-    background: #e8f5e9; color: #2e7d32; margin-bottom: 12px;
-  }
-  #modeTag.hf { background: #fff3e0; color: #e65100; }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Speech Transcriber</h1>
   <p class="sub">Raw transcription — every "um", "uh", and pause preserved</p>
-  <div id="modeTag">Browser mode (Chrome/Android)</div>
-
   <div class="btn-row">
     <button id="recordBtn">Record</button>
     <button id="transcribeBtn" disabled>Transcribe</button>
@@ -87,18 +64,9 @@
   <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
   <button id="saveBtn">Copy to clipboard</button>
   <div id="error" class="error"></div>
-
-  <details id="hfSection">
-    <summary>For iPhone / other browsers: use API mode</summary>
-    <label>Hugging Face Token <a href="https://huggingface.co/settings/tokens" target="_blank">(free)</a></label>
-    <input id="tokenInput" type="password" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxx">
-    <button id="saveTokenBtn">Save</button>
-    <div id="tokenStatus"></div>
-  </details>
 </div>
 
 <script>
-// DOM
 const recordBtn = document.getElementById('recordBtn');
 const transcribeBtn = document.getElementById('transcribeBtn');
 const resultArea = document.getElementById('result');
@@ -109,83 +77,58 @@ const canvas = document.getElementById('visualizer');
 const ctx = canvas.getContext('2d');
 const playBtn = document.getElementById('playBtn');
 const playRow = document.getElementById('playRow');
-const hfSection = document.getElementById('hfSection');
-const tokenInput = document.getElementById('tokenInput');
-const saveTokenBtn = document.getElementById('saveTokenBtn');
-const tokenStatus = document.getElementById('tokenStatus');
-const modeTag = document.getElementById('modeTag');
 
-// State
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let recordedBlob = null;
 let analyser = null;
 let animFrame = null;
-let abortController = null;
 let audioUrl = null;
 let audioPlayer = null;
-let hfToken = '';
-let mode = 'wspeech'; // 'wspeech' or 'hf'
 let recognition = null;
 let transcript = '';
 
-// Detect browser support
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SpeechRecognition) {
-  mode = 'hf';
-  modeTag.textContent = 'API mode (Hugging Face)';
-  modeTag.className = 'hf';
-  hfSection.style.display = 'block';
-  statusEl.textContent = 'Enter a Hugging Face token below, then Record.';
+  statusEl.textContent = 'Your browser doesn\'t support speech recognition. Try Chrome on Android or desktop.';
+  recordBtn.disabled = true;
+  transcribeBtn.disabled = true;
 }
-
-// Load saved HF token
-try {
-  const saved = localStorage.getItem('hf_token');
-  if (saved) { hfToken = saved; tokenInput.value = saved; }
-} catch(e) {}
-
-saveTokenBtn.addEventListener('click', () => {
-  const val = tokenInput.value.trim();
-  if (!val.startsWith('hf_')) { tokenStatus.textContent = 'Invalid token'; return; }
-  hfToken = val;
-  mode = 'hf';
-  modeTag.textContent = 'API mode (Hugging Face)';
-  modeTag.className = 'hf';
-  try { localStorage.setItem('hf_token', val); } catch(e) {}
-  tokenStatus.textContent = 'Saved!';
-  statusEl.textContent = 'Ready. Press Record.';
-});
 
 recordBtn.addEventListener('click', () => {
   if (!isRecording) startRecording();
   else stopRecording();
 });
-transcribeBtn.addEventListener('click', transcribeAudio);
+transcribeBtn.addEventListener('click', () => {
+  resultArea.value = transcript;
+  saveBtn.style.display = transcript.trim() ? 'block' : 'none';
+  statusEl.textContent = transcript.trim() ? 'Done' : 'No speech detected';
+});
 saveBtn.addEventListener('click', () => {
   navigator.clipboard.writeText(resultArea.value).then(() => {
     saveBtn.textContent = 'Copied!';
     setTimeout(() => { saveBtn.textContent = 'Copy to clipboard'; }, 2000);
   });
 });
-playBtn.addEventListener('click', togglePlayback);
+playBtn.addEventListener('click', () => {
+  if (!audioUrl) return;
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Listen'; playBtn.classList.remove('playing'); return; }
+  audioPlayer = new Audio(audioUrl);
+  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Listen'; playBtn.classList.remove('playing'); };
+  audioPlayer.play(); playBtn.textContent = 'Stop'; playBtn.classList.add('playing');
+});
 
 function startRecording() {
-  audioChunks = [];
-  recordedBlob = null;
-  transcript = '';
-  resultArea.value = '';
-  errorEl.textContent = '';
-  saveBtn.style.display = 'none';
-  transcribeBtn.disabled = true;
-  playRow.style.display = 'none';
-  cleanupAudio();
+  audioChunks = []; recordedBlob = null; transcript = '';
+  resultArea.value = ''; errorEl.textContent = '';
+  saveBtn.style.display = 'none'; transcribeBtn.disabled = true; playRow.style.display = 'none';
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
+  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
 
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+      ? 'audio/webm;codecs=opus' : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
 
     mediaRecorder = new MediaRecorder(stream, { mimeType });
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
@@ -195,80 +138,45 @@ function startRecording() {
       audioUrl = URL.createObjectURL(recordedBlob);
       playRow.style.display = 'block';
       stopVisualizer();
-      stopWebSpeech();
-
-      if (mode === 'wspeech') {
-        transcribeBtn.disabled = !transcript.trim();
-        statusEl.textContent = transcript.trim() ? 'Done. Listen or press Transcribe.' : 'No speech detected. Try again.';
-        resultArea.value = transcript;
-      } else {
-        transcribeBtn.disabled = true;
-        statusEl.textContent = 'Recording stopped. Press Transcribe.';
-      }
+      if (recognition) { try { recognition.stop(); } catch(e) {} recognition.onend = null; recognition = null; }
+      transcribeBtn.disabled = !transcript.trim();
+      statusEl.textContent = transcript.trim() ? 'Done. Listen or press Transcribe.' : 'No speech detected';
+      resultArea.value = transcript;
     };
 
     mediaRecorder.start();
     isRecording = true;
     recordBtn.textContent = 'Stop';
     recordBtn.classList.add('recording');
+    statusEl.textContent = 'Recording...';
 
-    if (mode === 'wspeech') {
-      startWebSpeech();
-    } else {
-      statusEl.textContent = 'Recording...';
-    }
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const r = event.results[i];
+        if (r.isFinal) transcript += r[0].transcript + ' ';
+        else interim += r[0].transcript;
+      }
+      resultArea.value = transcript + interim;
+    };
+    recognition.onerror = (e) => { if (e.error === 'no-speech' || e.error === 'aborted') return; errorEl.textContent = 'Error: ' + e.error; };
+    recognition.onend = () => { if (isRecording) { try { recognition.start(); } catch(e) {} } };
+    try { recognition.start(); } catch(e) {}
 
     startVisualizer(stream);
   }).catch(err => {
-    if (err.name === 'NotAllowedError') {
-      errorEl.textContent = 'Please allow microphone access in your browser settings.';
-      statusEl.textContent = 'Mic blocked';
-    } else {
-      errorEl.textContent = 'Mic error: ' + err.message;
-    }
+    if (err.name === 'NotAllowedError') { errorEl.textContent = 'Allow microphone access in your browser.'; statusEl.textContent = 'Mic blocked'; }
+    else { errorEl.textContent = 'Error: ' + err.message; }
   });
 }
 
-function startWebSpeech() {
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = 'en-US';
-  transcript = '';
-
-  recognition.onresult = (event) => {
-    let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const r = event.results[i];
-      if (r.isFinal) transcript += r[0].transcript + ' ';
-      else interim += r[0].transcript;
-    }
-    resultArea.value = transcript + interim;
-    statusEl.textContent = 'Recording... text appears live';
-  };
-
-  recognition.onerror = (e) => {
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
-    errorEl.textContent = 'Speech error: ' + e.error;
-  };
-
-  recognition.onend = () => {
-    if (isRecording) {
-      try { recognition.start(); } catch (e) {}
-    }
-  };
-
-  try { recognition.start(); } catch (e) {
-    errorEl.textContent = 'Failed to start speech recognition.';
-  }
-}
-
-function stopWebSpeech() {
-  if (recognition) {
-    try { recognition.stop(); } catch (e) {}
-    recognition.onend = null;
-    recognition = null;
-  }
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  isRecording = false; recordBtn.textContent = 'Record'; recordBtn.classList.remove('recording');
 }
 
 function startVisualizer(stream) {
@@ -301,123 +209,6 @@ function startVisualizer(stream) {
 function stopVisualizer() {
   if (animFrame) cancelAnimationFrame(animFrame);
   animFrame = null; analyser = null; canvas.style.display = 'none';
-}
-function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-  isRecording = false;
-  recordBtn.textContent = 'Record';
-  recordBtn.classList.remove('recording');
-}
-function togglePlayback() {
-  if (!audioUrl) return;
-  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Listen'; playBtn.classList.remove('playing'); return; }
-  audioPlayer = new Audio(audioUrl);
-  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Listen'; playBtn.classList.remove('playing'); };
-  audioPlayer.play(); playBtn.textContent = 'Stop'; playBtn.classList.add('playing');
-}
-function cleanupAudio() {
-  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
-  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
-}
-
-function blobToWav(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const buf = await ctx.decodeAudioData(reader.result);
-        const ch = buf.getChannelData(0);
-        const sr = buf.sampleRate;
-        const len = ch.length;
-        const buffer = new ArrayBuffer(44 + len * 2);
-        const v = new DataView(buffer);
-        function w(s, o) { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
-        w('RIFF', 0); v.setUint32(4, 36 + len * 2, true); w('WAVE', 8);
-        w('fmt ', 12); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-        v.setUint16(22, 1, true); v.setUint32(24, sr, true);
-        v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true);
-        v.setUint16(34, 16, true); w('data', 36);
-        v.setUint32(40, len * 2, true);
-        for (let i = 0; i < len; i++) {
-          const s = Math.max(-1, Math.min(1, ch[i]));
-          v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-        }
-        resolve(new Blob([buffer], { type: 'audio/wav' }));
-      } catch (e) { reject(e); }
-    };
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(blob);
-  });
-}
-
-async function transcribeAudio() {
-  if (mode === 'hf') {
-    if (!hfToken) { errorEl.textContent = 'Enter your Hugging Face token below.'; return; }
-    await hfTranscribe();
-    return;
-  }
-
-  // ws speech mode: text already in resultArea from live transcription
-  resultArea.value = transcript;
-  saveBtn.style.display = transcript.trim() ? 'block' : 'none';
-  statusEl.textContent = transcript.trim() ? 'Transcription complete' : 'No speech detected';
-}
-
-async function hfTranscribe() {
-  if (!recordedBlob) { errorEl.textContent = 'No audio recorded.'; return; }
-
-  transcribeBtn.disabled = true;
-  statusEl.textContent = 'Converting audio...';
-  errorEl.textContent = '';
-
-  let wavBlob;
-  try { wavBlob = await blobToWav(recordedBlob); }
-  catch (e) { errorEl.textContent = 'Conversion failed: ' + e.message; transcribeBtn.disabled = false; statusEl.textContent = 'Try again'; return; }
-
-  statusEl.textContent = 'Transcribing via Hugging Face...';
-  abortController = new AbortController();
-
-  try {
-    const timeout = setTimeout(() => abortController.abort(), 120000);
-    const res = await fetch(
-      'https://api-inference.huggingface.co/models/openai/whisper-tiny',
-      {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + hfToken, 'Content-Type': 'audio/wav' },
-        body: wavBlob,
-        signal: abortController.signal
-      }
-    );
-    clearTimeout(timeout);
-
-    const data = await res.json();
-    if (data.error) {
-      if (data.error.includes('currently loading')) {
-        statusEl.textContent = 'Model loading... retrying in 5s';
-        await new Promise(r => setTimeout(r, 5000));
-        const r2 = await fetch(
-          'https://api-inference.huggingface.co/models/openai/whisper-tiny',
-          { method: 'POST', headers: { 'Authorization': 'Bearer ' + hfToken, 'Content-Type': 'audio/wav' }, body: wavBlob }
-        );
-        const d2 = await r2.json();
-        if (d2.error) throw new Error(d2.error);
-        resultArea.value = d2.text || '(no speech)';
-      } else {
-        throw new Error(data.error);
-      }
-    } else {
-      resultArea.value = data.text || '(no speech)';
-    }
-    statusEl.textContent = 'Transcription complete';
-    saveBtn.style.display = 'block';
-    transcribeBtn.disabled = false;
-  } catch (err) {
-    if (err.name === 'AbortError') { errorEl.textContent = 'Timed out. Try again.'; }
-    else { errorEl.textContent = 'Error: ' + err.message; }
-    statusEl.textContent = 'Failed';
-    transcribeBtn.disabled = false;
-  }
 }
 </script>
 </body>

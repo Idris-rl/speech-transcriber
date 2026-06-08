@@ -60,7 +60,7 @@
   </div>
   <div id="status">Press Record and start speaking</div>
   <canvas id="visualizer"></canvas>
-  <div class="play-row" id="playRow"><button id="playBtn">Listen</button></div>
+  <div class="play-row" id="playRow"><button id="playBtn">Play recording</button></div>
   <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
   <button id="saveBtn">Copy to clipboard</button>
   <div id="error" class="error"></div>
@@ -82,8 +82,6 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let recordedBlob = null;
-let analyser = null;
-let animFrame = null;
 let audioUrl = null;
 let audioPlayer = null;
 let recognition = null;
@@ -91,7 +89,7 @@ let transcript = '';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SpeechRecognition) {
-  statusEl.textContent = 'Your browser doesn\'t support speech recognition. Try Chrome on Android or desktop.';
+  statusEl.textContent = 'Unsupported browser. Use Chrome on Android or desktop.';
   recordBtn.disabled = true;
   transcribeBtn.disabled = true;
 }
@@ -100,23 +98,28 @@ recordBtn.addEventListener('click', () => {
   if (!isRecording) startRecording();
   else stopRecording();
 });
+
 transcribeBtn.addEventListener('click', () => {
   resultArea.value = transcript;
-  saveBtn.style.display = transcript.trim() ? 'block' : 'none';
-  statusEl.textContent = transcript.trim() ? 'Done' : 'No speech detected';
+  saveBtn.style.display = 'block';
+  transcribeBtn.disabled = true;
+  statusEl.textContent = 'Transcription complete';
 });
+
 saveBtn.addEventListener('click', () => {
   navigator.clipboard.writeText(resultArea.value).then(() => {
     saveBtn.textContent = 'Copied!';
     setTimeout(() => { saveBtn.textContent = 'Copy to clipboard'; }, 2000);
   });
 });
+
 playBtn.addEventListener('click', () => {
   if (!audioUrl) return;
-  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Listen'; playBtn.classList.remove('playing'); return; }
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Play recording'; return; }
   audioPlayer = new Audio(audioUrl);
-  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Listen'; playBtn.classList.remove('playing'); };
-  audioPlayer.play(); playBtn.textContent = 'Stop'; playBtn.classList.add('playing');
+  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Play recording'; };
+  audioPlayer.play();
+  playBtn.textContent = 'Stop playback';
 });
 
 function startRecording() {
@@ -132,23 +135,13 @@ function startRecording() {
 
     mediaRecorder = new MediaRecorder(stream, { mimeType });
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      recordedBlob = new Blob(audioChunks, { type: mimeType });
-      audioUrl = URL.createObjectURL(recordedBlob);
-      playRow.style.display = 'block';
-      stopVisualizer();
-      if (recognition) { try { recognition.stop(); } catch(e) {} recognition.onend = null; recognition = null; }
-      transcribeBtn.disabled = !transcript.trim();
-      statusEl.textContent = transcript.trim() ? 'Done. Listen or press Transcribe.' : 'No speech detected';
-      resultArea.value = transcript;
-    };
 
     mediaRecorder.start();
     isRecording = true;
     recordBtn.textContent = 'Stop';
     recordBtn.classList.add('recording');
     statusEl.textContent = 'Recording...';
+    startVisualizer(stream);
 
     recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -163,21 +156,48 @@ function startRecording() {
       }
       resultArea.value = transcript + interim;
     };
-    recognition.onerror = (e) => { if (e.error === 'no-speech' || e.error === 'aborted') return; errorEl.textContent = 'Error: ' + e.error; };
+    recognition.onerror = () => {};
     recognition.onend = () => { if (isRecording) { try { recognition.start(); } catch(e) {} } };
     try { recognition.start(); } catch(e) {}
-
-    startVisualizer(stream);
   }).catch(err => {
-    if (err.name === 'NotAllowedError') { errorEl.textContent = 'Allow microphone access in your browser.'; statusEl.textContent = 'Mic blocked'; }
+    if (err.name === 'NotAllowedError') { errorEl.textContent = 'Allow microphone access in your browser settings.'; }
     else { errorEl.textContent = 'Error: ' + err.message; }
+    statusEl.textContent = 'Mic access denied';
   });
 }
 
 function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-  isRecording = false; recordBtn.textContent = 'Record'; recordBtn.classList.remove('recording');
+  isRecording = false;
+  recordBtn.textContent = 'Record';
+  recordBtn.classList.remove('recording');
+
+  if (recognition) {
+    recognition.onend = null;
+    try { recognition.stop(); } catch(e) {}
+    recognition = null;
+  }
+
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = () => {
+      recordedBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+      audioUrl = URL.createObjectURL(recordedBlob);
+      playRow.style.display = 'block';
+      stopVisualizer();
+      if (transcript.trim()) {
+        resultArea.value = transcript;
+        transcribeBtn.disabled = false;
+        statusEl.textContent = 'Tap Transcribe to confirm';
+      } else {
+        statusEl.textContent = 'No speech detected. Try again.';
+      }
+    };
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+  }
 }
+
+let analyser = null;
+let animFrame = null;
 
 function startVisualizer(stream) {
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -190,6 +210,7 @@ function startVisualizer(stream) {
   canvas.height = (canvas.offsetHeight || 80) * 2;
   const bufLen = analyser.frequencyBinCount;
   const data = new Uint8Array(bufLen);
+
   function draw() {
     if (!analyser) return;
     animFrame = requestAnimationFrame(draw);
@@ -206,6 +227,7 @@ function startVisualizer(stream) {
   }
   draw();
 }
+
 function stopVisualizer() {
   if (animFrame) cancelAnimationFrame(animFrame);
   animFrame = null; analyser = null; canvas.style.display = 'none';

@@ -1,14 +1,17 @@
+import os, sys, tempfile, subprocess, traceback
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 from faster_whisper import WhisperModel
-import tempfile
-import os
-import sys
 
 app = Flask(__name__)
 CORS(app)
 
-# Load Whisper model on startup (tiny, CPU, int8 for low memory)
+# Check ffmpeg is available
+try:
+    subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+except:
+    print("ERROR: ffmpeg not found!", file=sys.stderr)
+
 model = WhisperModel("tiny", device="cpu", compute_type="int8")
 
 @app.route("/")
@@ -19,28 +22,44 @@ def index():
 def ping():
     return "ok"
 
+@app.route("/_check")
+def check():
+    ffmpeg = "yes"
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+    except:
+        ffmpeg = "no"
+    return jsonify({"ffmpeg": ffmpeg, "status": "ok"})
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     if "audio" not in request.files:
         return jsonify({"error": "No audio file"}), 400
 
     audio = request.files["audio"]
-    suffix = ".webm"
-    if audio.filename and audio.filename.endswith(".wav"):
-        suffix = ".wav"
+    suffix = ".wav"
+    if audio.filename and audio.filename.endswith(".webm"):
+        suffix = ".webm"
 
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    audio.save(tmp.name)
-    tmp.close()
-
     try:
-        segments, _ = model.transcribe(tmp.name, beam_size=1)
+        audio.save(tmp.name)
+        tmp.close()
+
+        size = os.path.getsize(tmp.name)
+        if size == 0:
+            return jsonify({"error": "Empty audio file"}), 400
+
+        segments, info = model.transcribe(tmp.name, beam_size=1)
         text = " ".join(segment.text for segment in segments)
-        return jsonify({"text": text})
+        return jsonify({"text": text, "duration": info.duration})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
     finally:
-        os.unlink(tmp.name)
+        try:
+            os.unlink(tmp.name)
+        except:
+            pass
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

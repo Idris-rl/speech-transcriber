@@ -29,7 +29,17 @@
   @keyframes pulse { 0% { opacity: 1; } 50% { opacity: .7; } 100% { opacity: 1; } }
   #transcribeBtn { background: #333; color: white; }
   #transcribeBtn:disabled { background: #ccc; cursor: default; }
+  #cancelBtn {
+    display: none; background: #888; color: white; border: none;
+    border-radius: 10px; padding: 10px; font-size: .95rem;
+    font-weight: 600; cursor: pointer; width: 100%; margin-top: 8px; transition: .2s;
+  }
+  #cancelBtn:active { transform: scale(.97); }
   #status { font-size: .8rem; color: #888; margin-bottom: 12px; min-height: 1.2em; }
+  canvas {
+    width: 100%; height: 80px; border-radius: 10px; display: none;
+    margin-bottom: 12px; background: #fafafa;
+  }
   textarea {
     width: 100%; height: 250px; padding: 12px; border: 1px solid #ddd;
     border-radius: 10px; font-size: .95rem; resize: vertical;
@@ -40,8 +50,7 @@
   #saveBtn {
     display: none; background: #4caf50; color: white; border: none;
     border-radius: 10px; padding: 10px; font-size: .95rem;
-    font-weight: 600; cursor: pointer; width: 100%; margin-top: 8px;
-    transition: .2s;
+    font-weight: 600; cursor: pointer; width: 100%; margin-top: 8px; transition: .2s;
   }
   #saveBtn:active { transform: scale(.97); }
 </style>
@@ -55,23 +64,31 @@
     <button id="transcribeBtn" disabled>Transcribe</button>
   </div>
   <div id="status">Press Record and start speaking</div>
+  <canvas id="visualizer"></canvas>
   <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
   <button id="saveBtn">Copy to clipboard</button>
+  <button id="cancelBtn">Cancel</button>
   <div id="error" class="error"></div>
 </div>
 
 <script>
 const recordBtn = document.getElementById('recordBtn');
 const transcribeBtn = document.getElementById('transcribeBtn');
+const cancelBtn = document.getElementById('cancelBtn');
 const resultArea = document.getElementById('result');
 const statusEl = document.getElementById('status');
 const errorEl = document.getElementById('error');
 const saveBtn = document.getElementById('saveBtn');
+const canvas = document.getElementById('visualizer');
+const ctx = canvas.getContext('2d');
 
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let audioBlob = null;
+let analyser = null;
+let animFrame = null;
+let abortController = null;
 
 function getMic() {
   return navigator.mediaDevices.getUserMedia({ audio: true });
@@ -86,6 +103,8 @@ recordBtn.addEventListener('click', () => {
 });
 
 transcribeBtn.addEventListener('click', transcribeAudio);
+cancelBtn.addEventListener('click', cancelTranscription);
+
 saveBtn.addEventListener('click', () => {
   navigator.clipboard.writeText(resultArea.value).then(() => {
     saveBtn.textContent = 'Copied!';
@@ -100,6 +119,7 @@ function startRecording() {
   errorEl.textContent = '';
   saveBtn.style.display = 'none';
   transcribeBtn.disabled = true;
+  cancelBtn.style.display = 'none';
 
   getMic().then(stream => {
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -119,6 +139,7 @@ function startRecording() {
       audioBlob = new Blob(audioChunks, { type: mimeType });
       transcribeBtn.disabled = false;
       statusEl.textContent = 'Recording stopped. Press Transcribe.';
+      stopVisualizer();
     };
 
     mediaRecorder.start();
@@ -126,9 +147,56 @@ function startRecording() {
     recordBtn.textContent = 'Stop';
     recordBtn.classList.add('recording');
     statusEl.textContent = 'Recording...';
+    startVisualizer(stream);
   }).catch(err => {
     errorEl.textContent = 'Microphone access denied: ' + err.message;
   });
+}
+
+function startVisualizer(stream) {
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+
+  canvas.style.display = 'block';
+  canvas.width = canvas.offsetWidth * 2;
+  canvas.height = canvas.offsetHeight * 2;
+
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+
+  function draw() {
+    if (!analyser) return;
+    animFrame = requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(dataArray);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const barCount = 32;
+    const step = Math.floor(bufferLength / barCount);
+    const barW = (canvas.width / barCount) * 0.7;
+    const gap = (canvas.width / barCount) * 0.3;
+
+    for (let i = 0; i < barCount; i++) {
+      let sum = 0;
+      for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+      const avg = sum / step;
+      const h = (avg / 255) * canvas.height * 0.9;
+      const x = i * (barW + gap);
+      const hue = 200 - (h / canvas.height) * 200;
+      ctx.fillStyle = `hsl(${hue}, 80%, 50%)`;
+      ctx.fillRect(x, canvas.height - h, barW, h);
+    }
+  }
+  draw();
+}
+
+function stopVisualizer() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animFrame = null;
+  analyser = null;
+  canvas.style.display = 'none';
 }
 
 function stopRecording() {
@@ -147,14 +215,26 @@ async function transcribeAudio() {
   }
 
   transcribeBtn.disabled = true;
-  statusEl.textContent = 'Transcribing...';
+  cancelBtn.style.display = 'block';
+  statusEl.textContent = 'Transcribing... (server may take ~50 sec to wake up)';
+  errorEl.textContent = '';
 
   const formData = new FormData();
   const ext = audioBlob.type.includes('mp4') ? '.mp4' : '.webm';
   formData.append('audio', audioBlob, 'recording' + ext);
 
+  abortController = new AbortController();
+
   try {
-    const res = await fetch('/transcribe', { method: 'POST', body: formData });
+    const timeout = setTimeout(() => abortController.abort(), 120000);
+    const res = await fetch('/transcribe', {
+      method: 'POST',
+      body: formData,
+      signal: abortController.signal
+    });
+    clearTimeout(timeout);
+    cancelBtn.style.display = 'none';
+
     const data = await res.json();
 
     if (data.error) {
@@ -168,10 +248,25 @@ async function transcribeAudio() {
     statusEl.textContent = 'Transcription complete';
     saveBtn.style.display = 'block';
   } catch (err) {
-    errorEl.textContent = 'Network error: ' + err.message;
+    cancelBtn.style.display = 'none';
+    if (err.name === 'AbortError') {
+      errorEl.textContent = 'Request timed out (2 min). Try again — the server may be waking up.';
+    } else {
+      errorEl.textContent = 'Network error: ' + err.message;
+    }
     transcribeBtn.disabled = false;
-    statusEl.textContent = 'Connection failed';
+    statusEl.textContent = 'Connection failed — try again';
   }
+}
+
+function cancelTranscription() {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  cancelBtn.style.display = 'none';
+  transcribeBtn.disabled = false;
+  statusEl.textContent = 'Cancelled. Press Transcribe to retry.';
 }
 </script>
 </body>

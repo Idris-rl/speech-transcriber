@@ -116,6 +116,7 @@ let stream = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
+let pendingFinalize = false;
 let audioBlob = null;
 let audioUrl = null;
 let audioPlayer = null;
@@ -228,7 +229,12 @@ function startSR() {
       else interim += r[0].transcript;
     }
     resultArea.value = transcript + interim;
-    log('SR result received (transcript length: ' + transcript.length + ')');
+    log('SR result (len: ' + transcript.length + ')');
+    // If we're waiting to finalize, check now
+    if (pendingFinalize && transcript.trim()) {
+      pendingFinalize = false;
+      finalizeTranscript();
+    }
   };
 
   recognition.onerror = (e) => {
@@ -247,6 +253,9 @@ function startSR() {
       try { recognition.start(); } catch (e) {
         log('SR restart FAILED: ' + e.message);
       }
+    } else {
+      // User pressed Stop — finalize now
+      finalizeTranscript();
     }
   };
 
@@ -259,20 +268,27 @@ function startSR() {
   }
 }
 
+function finalizeTranscript() {
+  log('Finalizing transcript...');
+  if (transcript.trim()) {
+    resultArea.value = transcript;
+    transcribeBtn.disabled = false;
+    statusEl.textContent = transcript.length + ' chars captured. Tap Transcribe.';
+    statusDot.className = 'status-dot done';
+    log('Transcript: "' + transcript.trim() + '"');
+  } else {
+    statusEl.textContent = 'No speech detected. Try again.';
+    statusDot.className = '';
+    log('No transcript (empty)');
+  }
+}
+
 function stopRecording() {
   isRecording = false;
   recordBtn.textContent = 'Record';
   recordBtn.classList.remove('recording');
 
   log('Stopping...');
-
-  // Stop SR
-  if (recognition) {
-    recognition.onend = null;
-    try { recognition.stop(); } catch(e) {}
-    recognition = null;
-    log('SR stopped');
-  }
 
   // Stop MediaRecorder
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -294,17 +310,19 @@ function stopRecording() {
 
   stopVisualizer();
 
-  // Show result
-  if (transcript.trim()) {
-    resultArea.value = transcript;
-    transcribeBtn.disabled = false;
-    statusEl.textContent = transcript.length + ' chars captured. Tap Transcribe.';
-    statusDot.className = 'status-dot done';
-    log('Transcript: "' + transcript.trim() + '"');
+  // Stop SR — it may fire final onresult+onend asynchronously
+  if (recognition) {
+    pendingFinalize = true;
+    try { recognition.stop(); } catch(e) {}
+    // Fallback: if no result arrives within 2s, finalize anyway
+    setTimeout(() => {
+      if (pendingFinalize) {
+        pendingFinalize = false;
+        finalizeTranscript();
+      }
+    }, 2000);
   } else {
-    statusEl.textContent = 'No speech detected. Try again.';
-    statusDot.className = '';
-    log('No transcript (empty)');
+    finalizeTranscript();
   }
 }
 

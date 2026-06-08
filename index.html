@@ -26,17 +26,8 @@
   #transcribeBtn { background: #333; color: white; }
   #transcribeBtn:disabled { background: #ccc; cursor: default; }
   #status { font-size: .8rem; color: #888; margin-bottom: 12px; min-height: 1.2em; }
-  canvas { width: 100%; height: 80px; border-radius: 10px; display: none; margin-bottom: 12px; background: #fafafa; }
-  .play-row { display: none; gap: 12px; margin-bottom: 12px; }
-  .play-row button {
-    flex: 1; padding: 10px; border: none; border-radius: 10px;
-    font-size: .95rem; font-weight: 600; cursor: pointer; transition: .2s;
-  }
-  .play-row button:active { transform: scale(.97); }
-  #playBtn { background: #2196f3; color: white; }
-  #playBtn.playing { background: #e91e63; }
   textarea {
-    width: 100%; height: 250px; padding: 12px; border: 1px solid #ddd;
+    width: 100%; height: 280px; padding: 12px; border: 1px solid #ddd;
     border-radius: 10px; font-size: .95rem; resize: vertical;
     outline: none; background: #fafafa; font-family: inherit;
   }
@@ -59,9 +50,7 @@
     <button id="transcribeBtn" disabled>Transcribe</button>
   </div>
   <div id="status">Press Record and start speaking</div>
-  <canvas id="visualizer"></canvas>
-  <div class="play-row" id="playRow"><button id="playBtn">Play recording</button></div>
-  <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
+  <textarea id="result" placeholder="Transcription will appear here as you speak..." readonly></textarea>
   <button id="saveBtn">Copy to clipboard</button>
   <div id="error" class="error"></div>
 </div>
@@ -73,26 +62,17 @@ const resultArea = document.getElementById('result');
 const statusEl = document.getElementById('status');
 const errorEl = document.getElementById('error');
 const saveBtn = document.getElementById('saveBtn');
-const canvas = document.getElementById('visualizer');
-const ctx = canvas.getContext('2d');
-const playBtn = document.getElementById('playBtn');
-const playRow = document.getElementById('playRow');
 
-let mediaRecorder = null;
-let audioChunks = [];
-let isRecording = false;
-let recordedBlob = null;
-let audioUrl = null;
-let audioPlayer = null;
-let recognition = null;
-let transcript = '';
-
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SpeechRecognition) {
-  statusEl.textContent = 'Unsupported browser. Use Chrome on Android or desktop.';
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) {
+  statusEl.textContent = 'Unsupported browser. Use Chrome on Android, desktop, or Edge.';
   recordBtn.disabled = true;
   transcribeBtn.disabled = true;
 }
+
+let isRecording = false;
+let recognition = null;
+let transcript = '';
 
 recordBtn.addEventListener('click', () => {
   if (!isRecording) startRecording();
@@ -113,57 +93,73 @@ saveBtn.addEventListener('click', () => {
   });
 });
 
-playBtn.addEventListener('click', () => {
-  if (!audioUrl) return;
-  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Play recording'; return; }
-  audioPlayer = new Audio(audioUrl);
-  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Play recording'; };
-  audioPlayer.play();
-  playBtn.textContent = 'Stop playback';
-});
-
 function startRecording() {
-  audioChunks = []; recordedBlob = null; transcript = '';
-  resultArea.value = ''; errorEl.textContent = '';
-  saveBtn.style.display = 'none'; transcribeBtn.disabled = true; playRow.style.display = 'none';
-  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
-  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
+  transcript = '';
+  resultArea.value = '';
+  errorEl.textContent = '';
+  saveBtn.style.display = 'none';
+  transcribeBtn.disabled = true;
 
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus' : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+  // Request mic permission first
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
+    // Permission granted, ready to start speech recognition
+    // (we stop this stream immediately - SR will request its own)
+  }).catch(err => {
+    if (err.name === 'NotAllowedError') {
+      errorEl.textContent = 'Please allow microphone access in your browser settings.';
+    } else {
+      errorEl.textContent = 'Mic error: ' + err.message;
+    }
+    statusEl.textContent = 'Mic access denied';
+    return;
+  });
 
-    mediaRecorder = new MediaRecorder(stream, { mimeType });
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+  startSR();
+}
 
-    mediaRecorder.start();
+function startSR() {
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      if (r.isFinal) transcript += r[0].transcript + ' ';
+      else interim += r[0].transcript;
+    }
+    resultArea.value = transcript + interim;
+    statusEl.textContent = 'Recording... speak now';
+  };
+
+  recognition.onerror = (e) => {
+    errorEl.textContent = 'Speech error: ' + e.error + '. Try speaking closer to the mic.';
+    if (e.error === 'not-allowed') {
+      statusEl.textContent = 'Mic blocked';
+      isRecording = false;
+      recordBtn.textContent = 'Record';
+      recordBtn.classList.remove('recording');
+    }
+  };
+
+  recognition.onend = () => {
+    if (isRecording) {
+      // Restart if we didn't explicitly stop
+      try { recognition.start(); } catch(e) {}
+    }
+  };
+
+  try {
+    recognition.start();
     isRecording = true;
     recordBtn.textContent = 'Stop';
     recordBtn.classList.add('recording');
-    statusEl.textContent = 'Recording...';
-    startVisualizer(stream);
-
-    recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    recognition.onresult = (event) => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const r = event.results[i];
-        if (r.isFinal) transcript += r[0].transcript + ' ';
-        else interim += r[0].transcript;
-      }
-      resultArea.value = transcript + interim;
-    };
-    recognition.onerror = () => {};
-    recognition.onend = () => { if (isRecording) { try { recognition.start(); } catch(e) {} } };
-    try { recognition.start(); } catch(e) {}
-  }).catch(err => {
-    if (err.name === 'NotAllowedError') { errorEl.textContent = 'Allow microphone access in your browser settings.'; }
-    else { errorEl.textContent = 'Error: ' + err.message; }
-    statusEl.textContent = 'Mic access denied';
-  });
+    statusEl.textContent = 'Starting microphone...';
+  } catch (e) {
+    errorEl.textContent = 'Failed to start: ' + e.message;
+  }
 }
 
 function stopRecording() {
@@ -177,60 +173,13 @@ function stopRecording() {
     recognition = null;
   }
 
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.onstop = () => {
-      recordedBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-      audioUrl = URL.createObjectURL(recordedBlob);
-      playRow.style.display = 'block';
-      stopVisualizer();
-      if (transcript.trim()) {
-        resultArea.value = transcript;
-        transcribeBtn.disabled = false;
-        statusEl.textContent = 'Tap Transcribe to confirm';
-      } else {
-        statusEl.textContent = 'No speech detected. Try again.';
-      }
-    };
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+  if (transcript.trim()) {
+    resultArea.value = transcript;
+    transcribeBtn.disabled = false;
+    statusEl.textContent = 'Tap Transcribe to confirm';
+  } else {
+    statusEl.textContent = 'No speech detected. Try again.';
   }
-}
-
-let analyser = null;
-let animFrame = null;
-
-function startVisualizer(stream) {
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioCtx.createMediaStreamSource(stream);
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 256;
-  source.connect(analyser);
-  canvas.style.display = 'block';
-  canvas.width = (canvas.offsetWidth || 450) * 2;
-  canvas.height = (canvas.offsetHeight || 80) * 2;
-  const bufLen = analyser.frequencyBinCount;
-  const data = new Uint8Array(bufLen);
-
-  function draw() {
-    if (!analyser) return;
-    animFrame = requestAnimationFrame(draw);
-    analyser.getByteFrequencyData(data);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const n = 32, step = Math.floor(bufLen / n), bw = (canvas.width / n) * 0.7, gap = (canvas.width / n) * 0.3;
-    for (let i = 0; i < n; i++) {
-      let s = 0;
-      for (let j = 0; j < step; j++) s += data[i * step + j];
-      const h = (s / step / 255) * canvas.height * 0.9;
-      ctx.fillStyle = `hsl(${200 - (h / canvas.height) * 200}, 80%, 50%)`;
-      ctx.fillRect(i * (bw + gap), canvas.height - h, bw, h);
-    }
-  }
-  draw();
-}
-
-function stopVisualizer() {
-  if (animFrame) cancelAnimationFrame(animFrame);
-  animFrame = null; analyser = null; canvas.style.display = 'none';
 }
 </script>
 </body>

@@ -15,6 +15,10 @@ model = WhisperModel("tiny", device="cpu", compute_type="int8")
 def index():
     return render_template("index.html")
 
+@app.route("/_ping")
+def ping():
+    return "ok"
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     if "audio" not in request.files:

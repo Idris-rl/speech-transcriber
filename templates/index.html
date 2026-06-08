@@ -216,14 +216,23 @@ async function transcribeAudio() {
 
   transcribeBtn.disabled = true;
   cancelBtn.style.display = 'block';
-  statusEl.textContent = 'Transcribing... (server may take ~50 sec to wake up)';
+  statusEl.textContent = 'Waking up server... (may take ~30 sec)';
   errorEl.textContent = '';
+
+  abortController = new AbortController();
+
+  // Step 1: Wake up the server by pinging it
+  try {
+    await fetch('/_ping', { signal: abortController.signal });
+  } catch (e) {
+    // Ping failed — that's okay, the transcribe request will wake it too
+  }
+
+  statusEl.textContent = 'Transcribing...';
 
   const formData = new FormData();
   const ext = audioBlob.type.includes('mp4') ? '.mp4' : '.webm';
   formData.append('audio', audioBlob, 'recording' + ext);
-
-  abortController = new AbortController();
 
   try {
     const timeout = setTimeout(() => abortController.abort(), 120000);
@@ -250,7 +259,7 @@ async function transcribeAudio() {
   } catch (err) {
     cancelBtn.style.display = 'none';
     if (err.name === 'AbortError') {
-      errorEl.textContent = 'Request timed out (2 min). Try again — the server may be waking up.';
+      errorEl.textContent = 'Request timed out (2 min). The server may be stuck. Try again.';
     } else {
       errorEl.textContent = 'Network error: ' + err.message;
     }

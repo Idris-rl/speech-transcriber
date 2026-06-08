@@ -12,80 +12,55 @@
     display: flex; justify-content: center; align-items: center;
     min-height: 100dvh; padding: 20px;
   }
-  .card {
-    background: white; border-radius: 16px; width: 100%; max-width: 520px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 24px rgba(0,0,0,.04);
-    overflow: hidden;
-  }
-  .card-header {
-    background: #1a1a2e; padding: 28px 32px 24px;
-  }
-  .card-header h1 {
-    color: white; font-size: 1.25rem; font-weight: 700; letter-spacing: -.3px;
-  }
-  .card-header p {
-    color: rgba(255,255,255,.55); font-size: .85rem; margin-top: 4px;
-  }
+  .card { background: white; border-radius: 16px; width: 100%; max-width: 520px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 24px rgba(0,0,0,.04); overflow: hidden; }
+  .card-header { background: #1a1a2e; padding: 28px 32px 24px; }
+  .card-header h1 { color: white; font-size: 1.25rem; font-weight: 700; letter-spacing: -.3px; }
+  .card-header p { color: rgba(255,255,255,.55); font-size: .85rem; margin-top: 4px; }
   .card-body { padding: 28px 32px 32px; }
-  .btn-row { display: flex; gap: 12px; margin-bottom: 20px; }
+  .btn-row { display: flex; gap: 12px; margin-bottom: 16px; }
   .btn-row button {
     flex: 1; padding: 13px; border: none; border-radius: 10px;
-    font-size: .95rem; font-weight: 600; cursor: pointer;
-    transition: all .15s; -webkit-tap-highlight-color: transparent;
+    font-size: .95rem; font-weight: 600; cursor: pointer; transition: all .15s; -webkit-tap-highlight-color: transparent;
   }
   .btn-row button:active { transform: scale(.97); }
-  #recordBtn {
-    background: #e53935; color: white; box-shadow: 0 2px 8px rgba(229,57,53,.25);
-  }
-  #recordBtn:hover { background: #d32f2f; }
+  #recordBtn { background: #e53935; color: white; box-shadow: 0 2px 8px rgba(229,57,53,.25); }
   #recordBtn.recording { background: #b71c1c; animation: pulse 1.4s infinite; }
   @keyframes pulse { 0% { opacity: 1; } 50% { opacity: .65; } 100% { opacity: 1; } }
   #transcribeBtn { background: #1a1a2e; color: white; }
-  #transcribeBtn:hover { background: #2d2d4a; }
-  #transcribeBtn:disabled { background: #e0e0e0; color: #aaa; cursor: default; box-shadow: none; }
-  .status-row {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
-    font-size: .82rem; color: #888;
+  #transcribeBtn:disabled { background: #e0e0e0; color: #aaa; cursor: default; }
+  canvas { width: 100%; height: 64px; border-radius: 8px; display: none; margin-bottom: 14px; background: #0a0a0a; }
+  #playRow { display: none; margin-bottom: 14px; }
+  #playBtn {
+    width: 100%; padding: 9px; border: none; border-radius: 8px;
+    font-size: .85rem; font-weight: 600; cursor: pointer;
+    background: #1a1a2e; color: white; transition: .2s;
   }
-  .status-dot {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    background: #ccc; transition: background .3s;
-  }
-  .status-dot.idle { background: #ccc; }
-  .status-dot.recording { background: #e53935; animation: pulse 1.4s infinite; }
+  #playBtn.playing { background: #e53935; }
+  .status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: .82rem; color: #888; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #ccc; transition: background .3s; }
+  .status-dot.active { background: #e53935; animation: pulse 1.4s infinite; }
   .status-dot.done { background: #43a047; }
-  .status-dot.error { background: #e53935; }
-  .status-dot.complete { background: #43a047; }
   textarea {
-    width: 100%; height: 220px; padding: 14px; border: 1px solid #e8e8e8;
+    width: 100%; height: 200px; padding: 14px; border: 1px solid #e8e8e8;
     border-radius: 10px; font-size: .9rem; line-height: 1.6;
     resize: vertical; outline: none; background: #fafafa;
-    font-family: inherit; color: #222; transition: border .2s;
+    font-family: inherit; color: #222;
   }
-  textarea:focus { border-color: #1a1a2e; background: #fff; }
-  textarea::placeholder { color: #bbb; }
+  textarea:focus { border-color: #1a1a2e; }
   .footer-row { display: flex; gap: 10px; margin-top: 12px; min-height: 42px; }
   .footer-row button {
     flex: 1; padding: 10px; border: none; border-radius: 8px;
     font-size: .85rem; font-weight: 600; cursor: pointer; transition: all .15s;
   }
   .footer-row button:active { transform: scale(.97); }
-  #saveBtn {
-    display: none; background: #43a047; color: white;
-  }
-  #saveBtn:hover { background: #388e3c; }
-  #clearBtn {
-    display: none; background: #f5f5f5; color: #666;
-  }
-  #clearBtn:hover { background: #eee; }
-  .error {
-    font-size: .8rem; color: #e53935; margin-top: 12px; min-height: 1.2em;
-  }
+  #saveBtn { display: none; background: #43a047; color: white; }
+  #clearBtn { display: none; background: #f5f5f5; color: #666; }
+  #error, #debug { font-size: .8rem; margin-top: 10px; }
+  #error { color: #e53935; }
+  #debug { color: #888; font-family: monospace; white-space: pre-wrap; word-break: break-all; }
   @media (max-width: 480px) {
     .card-header { padding: 22px 20px 18px; }
     .card-body { padding: 22px 20px 24px; }
-    .card-header h1 { font-size: 1.1rem; }
-    .btn-row button { padding: 12px; font-size: .9rem; }
   }
 </style>
 </head>
@@ -101,18 +76,22 @@
       <button id="transcribeBtn" disabled>Transcribe</button>
     </div>
 
+    <canvas id="visualizer"></canvas>
+    <div id="playRow"><button id="playBtn">Play recording</button></div>
+
     <div class="status-row">
-      <span class="status-dot idle" id="statusDot"></span>
+      <span class="status-dot" id="statusDot"></span>
       <span id="status">Press Record and start speaking</span>
     </div>
 
-    <textarea id="result" placeholder="Transcription will appear here as you speak..." readonly></textarea>
+    <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
 
     <div class="footer-row">
       <button id="saveBtn">Copy to clipboard</button>
       <button id="clearBtn">Clear</button>
     </div>
-    <div id="error" class="error"></div>
+    <div id="error"></div>
+    <div id="debug"></div>
   </div>
 </div>
 
@@ -123,21 +102,39 @@ const resultArea = document.getElementById('result');
 const statusEl = document.getElementById('status');
 const statusDot = document.getElementById('statusDot');
 const errorEl = document.getElementById('error');
+const debugEl = document.getElementById('debug');
 const saveBtn = document.getElementById('saveBtn');
 const clearBtn = document.getElementById('clearBtn');
+const canvas = document.getElementById('visualizer');
+const ctx = canvas.getContext('2d');
+const playBtn = document.getElementById('playBtn');
+const playRow = document.getElementById('playRow');
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-if (!SR) {
-  statusEl.textContent = 'Unsupported browser. Use Chrome or Edge.';
-  statusDot.className = 'status-dot error';
-  recordBtn.disabled = true;
-  transcribeBtn.disabled = true;
-}
-
+let stream = null;
+let mediaRecorder = null;
+let audioChunks = [];
 let isRecording = false;
+let audioBlob = null;
+let audioUrl = null;
+let audioPlayer = null;
 let recognition = null;
 let transcript = '';
+let analyser = null;
+let animFrame = null;
+
+function log(msg) {
+  debugEl.textContent += msg + '\n';
+  console.log(msg);
+}
+
+if (!SR) {
+  statusEl.textContent = 'Unsupported browser. Use Chrome or Edge.';
+  recordBtn.disabled = true;
+  transcribeBtn.disabled = true;
+  log('ERROR: SpeechRecognition not available in this browser');
+}
 
 recordBtn.addEventListener('click', () => {
   if (!isRecording) startRecording();
@@ -150,7 +147,7 @@ transcribeBtn.addEventListener('click', () => {
   clearBtn.style.display = 'block';
   transcribeBtn.disabled = true;
   statusEl.textContent = 'Transcription complete';
-  statusDot.className = 'status-dot complete';
+  statusDot.className = 'status-dot done';
 });
 
 saveBtn.addEventListener('click', () => {
@@ -161,27 +158,63 @@ saveBtn.addEventListener('click', () => {
 });
 
 clearBtn.addEventListener('click', () => {
-  transcript = '';
-  resultArea.value = '';
-  saveBtn.style.display = 'none';
-  clearBtn.style.display = 'none';
-  statusEl.textContent = 'Cleared. Press Record to start.';
-  statusDot.className = 'status-dot idle';
+  transcript = ''; resultArea.value = '';
+  saveBtn.style.display = 'none'; clearBtn.style.display = 'none';
+  statusEl.textContent = 'Press Record to start';
+  statusDot.className = '';
 });
 
-function setStatus(text, dotClass) {
-  statusEl.textContent = text;
-  statusDot.className = 'status-dot ' + dotClass;
-}
+playBtn.addEventListener('click', () => {
+  if (!audioUrl) return;
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; playBtn.textContent = 'Play recording'; return; }
+  audioPlayer = new Audio(audioUrl);
+  audioPlayer.onended = () => { audioPlayer = null; playBtn.textContent = 'Play recording'; };
+  audioPlayer.play();
+  playBtn.textContent = 'Stop';
+});
 
 function startRecording() {
-  transcript = '';
-  resultArea.value = '';
-  errorEl.textContent = '';
-  saveBtn.style.display = 'none';
-  clearBtn.style.display = 'none';
+  audioChunks = []; audioBlob = null; transcript = '';
+  resultArea.value = ''; errorEl.textContent = ''; debugEl.textContent = '';
+  saveBtn.style.display = 'none'; clearBtn.style.display = 'none'; playRow.style.display = 'none';
   transcribeBtn.disabled = true;
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
+  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
 
+  log('Requesting mic access...');
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
+    stream = s;
+    isRecording = true;
+    recordBtn.textContent = 'Stop';
+    recordBtn.classList.add('recording');
+    statusEl.textContent = 'Recording...';
+    statusDot.className = 'status-dot active';
+    log('Mic access granted. Starting MediaRecorder...');
+
+    // 1. MediaRecorder for playback
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus' : 'audio/webm';
+    mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.start();
+    log('MediaRecorder started');
+
+    // 2. Visualizer
+    startVisualizer(stream);
+    log('Visualizer started');
+
+    // 3. SpeechRecognition
+    log('Starting SpeechRecognition...');
+    startSR();
+
+  }).catch(err => {
+    errorEl.textContent = 'Mic access denied: ' + err.message;
+    statusEl.textContent = 'Mic blocked';
+    log('getUserMedia ERROR: ' + err.name + ' - ' + err.message);
+  });
+}
+
+function startSR() {
   recognition = new SR();
   recognition.continuous = true;
   recognition.interimResults = true;
@@ -195,30 +228,34 @@ function startRecording() {
       else interim += r[0].transcript;
     }
     resultArea.value = transcript + interim;
+    log('SR result received (transcript length: ' + transcript.length + ')');
   };
 
   recognition.onerror = (e) => {
-    if (e.error === 'not-allowed') {
-      errorEl.textContent = 'Microphone access blocked. Check your browser settings.';
-      setStatus('Mic denied', 'error');
-      stopRecording();
-    }
+    errorEl.textContent = 'SR error: ' + e.error + ' - ' + e.message;
+    log('SR ERROR: ' + e.error + ' | message: ' + e.message);
+  };
+
+  recognition.onnomatch = () => {
+    log('SR: no match (could not recognize speech)');
   };
 
   recognition.onend = () => {
+    log('SR ended (isRecording=' + isRecording + ')');
     if (isRecording) {
-      try { recognition.start(); } catch (e) {}
+      log('SR: restarting...');
+      try { recognition.start(); } catch (e) {
+        log('SR restart FAILED: ' + e.message);
+      }
     }
   };
 
   try {
     recognition.start();
-    isRecording = true;
-    recordBtn.textContent = 'Stop';
-    recordBtn.classList.add('recording');
-    setStatus('Recording... speak now', 'recording');
+    log('SR start() called successfully');
   } catch (e) {
-    errorEl.textContent = 'Failed to start: ' + e.message;
+    errorEl.textContent = 'SR failed to start: ' + e.message;
+    log('SR start() EXCEPTION: ' + e.message);
   }
 }
 
@@ -227,19 +264,81 @@ function stopRecording() {
   recordBtn.textContent = 'Record';
   recordBtn.classList.remove('recording');
 
+  log('Stopping...');
+
+  // Stop SR
   if (recognition) {
     recognition.onend = null;
-    try { recognition.stop(); } catch (e) {}
+    try { recognition.stop(); } catch(e) {}
     recognition = null;
+    log('SR stopped');
   }
 
+  // Stop MediaRecorder
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = () => {
+      audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+      audioUrl = URL.createObjectURL(audioBlob);
+      playRow.style.display = 'block';
+      log('MediaRecorder stopped, playback ready (' + audioBlob.size + ' bytes)');
+    };
+    mediaRecorder.stop();
+  }
+
+  // Stop stream
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    log('Mic stream closed');
+  }
+
+  stopVisualizer();
+
+  // Show result
   if (transcript.trim()) {
     resultArea.value = transcript;
     transcribeBtn.disabled = false;
-    setStatus('Recording stopped. Tap Transcribe to confirm.', 'done');
+    statusEl.textContent = transcript.length + ' chars captured. Tap Transcribe.';
+    statusDot.className = 'status-dot done';
+    log('Transcript: "' + transcript.trim() + '"');
   } else {
-    setStatus('No speech detected. Try again.', 'idle');
+    statusEl.textContent = 'No speech detected. Try again.';
+    statusDot.className = '';
+    log('No transcript (empty)');
   }
+}
+
+function startVisualizer(s) {
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioCtx.createMediaStreamSource(s);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  canvas.style.display = 'block';
+  canvas.width = (canvas.offsetWidth || 450) * 2;
+  canvas.height = (canvas.offsetHeight || 64) * 2;
+  const bufLen = analyser.frequencyBinCount;
+  const data = new Uint8Array(bufLen);
+  function draw() {
+    if (!analyser) return;
+    animFrame = requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(data);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const n = 32, step = Math.floor(bufLen / n), bw = (canvas.width / n) * 0.7, gap = (canvas.width / n) * 0.3;
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = 0; j < step; j++) s += data[i * step + j];
+      const h = (s / step / 255) * canvas.height * 0.9;
+      ctx.fillStyle = `hsl(${200 - (h / canvas.height) * 200}, 80%, 50%)`;
+      ctx.fillRect(i * (bw + gap), canvas.height - h, bw, h);
+    }
+  }
+  draw();
+}
+
+function stopVisualizer() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animFrame = null; analyser = null; canvas.style.display = 'none';
 }
 </script>
 </body>

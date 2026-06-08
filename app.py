@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
-import whisper
+from faster_whisper import WhisperModel
 import tempfile
 import os
 import sys
@@ -8,8 +8,8 @@ import sys
 app = Flask(__name__)
 CORS(app)
 
-# Load Whisper model on startup
-model = whisper.load_model("tiny")
+# Load Whisper model on startup (tiny, CPU, int8 for low memory)
+model = WhisperModel("tiny", device="cpu", compute_type="int8")
 
 @app.route("/")
 def index():
@@ -30,8 +30,8 @@ def transcribe():
     tmp.close()
 
     try:
-        result = model.transcribe(tmp.name)
-        text = result["text"]
+        segments, _ = model.transcribe(tmp.name, beam_size=1)
+        text = " ".join(segment.text for segment in segments)
         return jsonify({"text": text})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

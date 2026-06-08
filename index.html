@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speech Transcriber</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100dvh; background: #f0f0f0; padding: 16px;
+  }
+  .card {
+    background: white; border-radius: 16px; padding: 24px;
+    width: 100%; max-width: 500px; box-shadow: 0 2px 12px rgba(0,0,0,.1);
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .sub { color: #666; font-size: .85rem; margin-bottom: 20px; }
+  .btn-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .btn-row button {
+    flex: 1; padding: 14px; border: none; border-radius: 10px;
+    font-size: 1rem; font-weight: 600; cursor: pointer; transition: .2s;
+  }
+  .btn-row button:active { transform: scale(.97); }
+  #recordBtn { background: #ff4444; color: white; }
+  #recordBtn.recording { background: #cc0000; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0% { opacity: 1; } 50% { opacity: .7; } 100% { opacity: 1; } }
+  #transcribeBtn { background: #333; color: white; }
+  #transcribeBtn:disabled { background: #ccc; cursor: default; }
+  #status { font-size: .8rem; color: #888; margin-bottom: 12px; min-height: 1.2em; }
+  textarea {
+    width: 100%; height: 250px; padding: 12px; border: 1px solid #ddd;
+    border-radius: 10px; font-size: .95rem; resize: vertical;
+    outline: none; background: #fafafa; font-family: inherit;
+  }
+  textarea:focus { border-color: #333; }
+  .error { color: #d32f2f; font-size: .85rem; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Speech Transcriber</h1>
+  <p class="sub">Raw transcription — every "um", "uh", and pause preserved</p>
+  <div class="btn-row">
+    <button id="recordBtn">Record</button>
+    <button id="transcribeBtn" disabled>Transcribe</button>
+  </div>
+  <div id="status">Press Record and start speaking</div>
+  <textarea id="result" placeholder="Transcription will appear here..." readonly></textarea>
+  <div id="error" class="error"></div>
+</div>
+
+<script>
+const recordBtn = document.getElementById('recordBtn');
+const transcribeBtn = document.getElementById('transcribeBtn');
+const resultArea = document.getElementById('result');
+const statusEl = document.getElementById('status');
+const errorEl = document.getElementById('error');
+
+let recognition = null;
+let isRecording = false;
+let finalTranscript = '';
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (!SpeechRecognition) {
+  errorEl.textContent = 'Speech recognition not supported. Use Chrome on Android or desktop.';
+  recordBtn.disabled = true;
+}
+
+recordBtn.addEventListener('click', () => {
+  if (!isRecording) {
+    startRecording();
+  } else {
+    stopRecording();
+  }
+});
+
+transcribeBtn.addEventListener('click', () => {
+  resultArea.value = finalTranscript || '(no speech detected)';
+  transcribeBtn.disabled = true;
+  statusEl.textContent = 'Transcription complete — text above';
+});
+
+function startRecording() {
+  finalTranscript = '';
+  resultArea.value = '';
+  errorEl.textContent = '';
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    let interim = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      if (r.isFinal) {
+        finalTranscript += r[0].transcript + ' ';
+      } else {
+        interim += r[0].transcript;
+      }
+    }
+
+    resultArea.value = finalTranscript + interim;
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    errorEl.textContent = 'Error: ' + e.error;
+    stopRecording();
+  };
+
+  recognition.onend = () => {
+    if (isRecording) {
+      try { recognition.start(); } catch (e) {}
+    }
+  };
+
+  try {
+    recognition.start();
+    isRecording = true;
+    recordBtn.textContent = 'Stop';
+    recordBtn.classList.add('recording');
+    transcribeBtn.disabled = true;
+    statusEl.textContent = 'Recording — speak now...';
+  } catch (e) {
+    errorEl.textContent = 'Failed to start: ' + e.message;
+  }
+}
+
+function stopRecording() {
+  isRecording = false;
+  if (recognition) {
+    try { recognition.stop(); } catch (e) {}
+    recognition.onend = null;
+    recognition = null;
+  }
+  recordBtn.textContent = 'Record';
+  recordBtn.classList.remove('recording');
+
+  if (finalTranscript.trim()) {
+    transcribeBtn.disabled = false;
+    statusEl.textContent = 'Recording stopped. Press Transcribe to finalize.';
+  } else {
+    transcribeBtn.disabled = true;
+    statusEl.textContent = 'Ready. Press Record to start.';
+  }
+}
+</script>
+</body>
+</html>
